@@ -1,7 +1,10 @@
+extern crate clap;
 extern crate rexiv2;
 
 use std::path::Path;
 use std::fs::{self, ReadDir};
+use clap::{Arg, App};
+use rexiv2::{Metadata, Rexiv2Error};
 
 struct ImgRef {
     path_string: String,
@@ -18,9 +21,9 @@ impl ImgRef {
         )
     }
 
-    fn metadata(&self) -> Result<rexiv2::Metadata, rexiv2::Rexiv2Error> {
+    fn metadata(&self) -> Result<Metadata, Rexiv2Error> {
         let path = Path::new(&self.path_string);
-        rexiv2::Metadata::new_from_path(path)
+        Metadata::new_from_path(path)
     }
 
     fn create_timestamp(&self) -> i64 {
@@ -28,7 +31,7 @@ impl ImgRef {
         0
     }
 
-    fn debug_string(&self) -> Result<String, rexiv2::Rexiv2Error> {
+    fn debug_string(&self) -> Result<String, Rexiv2Error> {
         let meta = self.metadata().unwrap();
         let media_type = meta.get_media_type().unwrap();
         Ok(
@@ -41,7 +44,7 @@ impl ImgRef {
     }
 }
 
-fn are_identical(left: &ImgRef, right: &ImgRef) -> Result<bool, rexiv2::Rexiv2Error> {
+fn are_identical(left: &ImgRef, right: &ImgRef) -> Result<bool, Rexiv2Error> {
     let left_meta = left.metadata().unwrap();
     let right_meta = right.metadata().unwrap();
 
@@ -112,8 +115,17 @@ impl Iterator for ImgRefIter {
 }
 
 fn main() {
-    let root = Path::new("/home/nat/Pictures");
-    let img_ref_iter = ImgRefIter::from_path(root);
+
+    let matches = App::new("imgdups")
+                    .author("Nat Wilson")
+                    .about("Finds likely JPEG duplicates")
+                    .arg(Arg::with_name("ROOT")
+                         .required(true)
+                         .index(1))
+                    .get_matches();
+
+    let root = matches.value_of("ROOT").unwrap();
+    let img_ref_iter = ImgRefIter::from_path(Path::new(&root));
     match img_ref_iter {
         Ok(iter) => for img in iter {
             println!("{:?}", img.debug_string())
