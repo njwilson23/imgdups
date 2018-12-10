@@ -1,58 +1,99 @@
+extern crate chrono;
 extern crate clap;
+extern crate num_rational;
 extern crate rexiv2;
 
 use std::path::Path;
 use std::fs::{self, ReadDir};
+use std::cmp::Ordering;
+
+use chrono::{Utc, TimeZone};
 use clap::{Arg, App};
-use rexiv2::{Metadata, Rexiv2Error};
+use num_rational::Ratio;
+use rexiv2::Metadata;
+
+#[derive(Eq)]
+struct Timestamp {
+    millis: i64
+}
+
+impl Timestamp {
+    fn from_string(s: &str) -> Timestamp {
+        let maybe_dt = Utc.datetime_from_str(s, "%Y:%m:%d %H:%M:%S");
+        let millis = maybe_dt
+            .map(|dt| dt.timestamp_millis())
+            .unwrap_or(0);
+        Timestamp { millis: millis, }
+    }
+}
+
+impl PartialEq for Timestamp {
+    fn eq(&self, other: &Timestamp) -> bool {
+        self.millis == other.millis
+    }
+}
 
 struct ImgRef {
     path_string: String,
+    created: Timestamp,
+    width: i32,
+    height: i32,
+    exposure_time: Ratio<i32>,
+    fnumber: f64,
 }
 
 impl ImgRef {
 
     fn from_path(path: &Path) -> Result<ImgRef, std::io::Error> {
         let s = path.to_str().unwrap();
+        let meta = Metadata::new_from_path(path).unwrap();
+        let created = match meta.get_tag_string("Exif.Image.DateTime") {
+            Ok(s) => s,
+            Err(_) => "1970:01:01 00:00:00".to_owned(),
+        };
         Ok(
             ImgRef {
                 path_string: s.to_owned(),
+                created: Timestamp::from_string(&created),
+                width: meta.get_pixel_width(),
+                height: meta.get_pixel_height(),
+                exposure_time: meta.get_exposure_time().unwrap_or(Ratio::new(0, 1)),
+                fnumber: meta.get_fnumber().unwrap_or(0.0),
             }
         )
     }
 
-    fn metadata(&self) -> Result<Metadata, Rexiv2Error> {
-        let path = Path::new(&self.path_string);
-        Metadata::new_from_path(path)
-    }
-
-    fn create_timestamp(&self) -> i64 {
-        // not implemented
-        0
-    }
-
-    fn debug_string(&self) -> Result<String, Rexiv2Error> {
-        let meta = self.metadata().unwrap();
-        let media_type = meta.get_media_type().unwrap();
-        Ok(
-            format!("{} ({} x {}) {:?}",
-                    self.path_string,
-                    meta.get_pixel_width(),
-                    meta.get_pixel_height(),
-                    media_type)
-        )
+    fn debug_string(&self) -> String {
+        format!("{} ({} x {}) <created: {}>",
+                self.path_string,
+                self.width,
+                self.height,
+                self.created.millis)
     }
 }
 
-fn are_identical(left: &ImgRef, right: &ImgRef) -> Result<bool, Rexiv2Error> {
-    let left_meta = left.metadata().unwrap();
-    let right_meta = right.metadata().unwrap();
+impl PartialEq for ImgRef {
+    fn eq(&self, other: &ImgRef) -> bool {
+        self.created == other.created &&
+        self.width == other.width &&
+        self.height == other.height &&
+        self.fnumber == other.fnumber &&
+        self.exposure_time == other.exposure_time
+    }
+}
 
-    Ok(
-        left.create_timestamp() == right.create_timestamp() &&
-        left_meta.get_pixel_height() == right_meta.get_pixel_height() &&
-        left_meta.get_pixel_width() == right_meta.get_pixel_width()
-    )
+impl Eq for ImgRef {}
+
+impl PartialOrd for ImgRef {
+    fn partial_cmp(&self, other: &ImgRef) -> Option<Ordering> {
+        self.created.millis.partial_cmp(&other.created.millis)
+    }
+}
+
+impl Ord for ImgRef {
+    fn cmp(&self, other: &ImgRef) -> Ordering {
+        self.created.millis.cmp(&other.created.millis)
+    }
 }
 
 struct ImgRefIter {
@@ -125,11 +166,26 @@ fn main() {
                     .get_matches();
 
     let root = matches.value_of("ROOT").unwrap();
+
+    let mut images: Vec<ImgRef> = Vec::new();
     let img_ref_iter = ImgRefIter::from_path(Path::new(&root));
     match img_ref_iter {
         Ok(iter) => for img in iter {
-            println!("{:?}", img.debug_string())
+            images.push(img);
         },
         Err(e) => println!("{}", e),
+    }
+
+    images.sort();
+    println!("found {} images", images.len());
+
+    let mut i = 0;
+    while i != images.len() - 1 {
+        if images[i] == images[i+1] {
+            println!("possible duplicates:\n  {}\n  {}",
+                     images[i].debug_string(),
+                     images[i+1].debug_string())
+        }
+        i = i + 1;
     }
 }

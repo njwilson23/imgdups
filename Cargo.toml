@@ -5,5 +5,7 @@ authors = ["Nat Wilson <njwilson23@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+chrono = "0.4"
 clap = "2.32.0"
+num-rational = "0.2.1"
 rexiv2 = "0.7.0"
